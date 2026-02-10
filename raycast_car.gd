@@ -3,13 +3,10 @@ extends RigidBody3D
 #region --- Vehicle Setup & Physics ---
 
 @export_group("Suspension")
-@export var wheels: Array[RayCast3D]
-# TODO @export var wheels: Array[RaycastWheel]
-@export var spring_strength := 100000.0
-@export var spring_damping := 2500.0
-@export var suspension_travel := 0.5
-@export var wheel_radius := 0.4
+@export var wheels: Array[RaycastWheel]  # Changed from Array[RayCast3D]
+# Suspension settings are now on individual wheels
 @export var anti_roll_strength := 1000.0
+@export var center_of_mass_offset := Vector3(0, -0.3, 0)  # Lower CoM for stability
 
 @export_group("Engine & Handling")
 @export var engine_power := 80000.0
@@ -18,15 +15,14 @@ extends RigidBody3D
 @export var max_reverse_speed := 15.0
 @export var brake_power := 50.0
 @export var steer_angle := 30.0
+@export var steer_speed := 8.0  # Speed of steering interpolation (lower = smoother)
 @export var jump_impulse := 10000.0
 @export var acceleration_time := 3.0
 @export var reverse_acceleration_time := 4.0
-@export var rolling_resistance := 0.5
 @export var min_speed_for_steering := 1.0
 
 @export_group("Friction & Drifting Model")
-@export var tire_grip := 2.5
-@export var longitudinal_grip := 4.0
+# Tire friction settings are now on individual wheels
 @export var drift_threshold := 0.9
 @export var brake_boost_drift_grip := 0.3
 @export var drift_grip_reduction := 0.5
@@ -45,7 +41,7 @@ extends RigidBody3D
 
 @export_group("Air Control & Stability")
 @export var air_rotation_speed := 8.0
-@export var auto_stabilization := 15.0
+@export var auto_stabilization := 200.0  # Massive stability (was 100.0)
 @export var jump_pitch_compensation := 0.4
 @export var air_brake_strength := 0.9
 @export var enable_air_control := false
@@ -104,7 +100,10 @@ extends RigidBody3D
 @export var start_camera_index := 0
 @export var camera_smooth_speed := 5.0
 @export var camera_fov_smooth_speed := 5.0
-@export var dynamic_fov_increase := 10.0
+@export var dynamic_fov_increase := 15.0 
+@export var throttle_fov_increase := 10.0 # Extra FOV when pressing gas
+@export var boost_fov_multiplier := 1.2  
+@export var speed_blur_rect: ColorRect   
 
 @export_group("Wheel Visuals")
 @export var wheel_particles: Array[GPUParticles3D]
@@ -121,6 +120,8 @@ var time_airborne := 0.0
 var grounded_wheels := 0
 var _axle_mid_point_z := 0.0
 var _is_drifting := false
+var _is_actually_boosting := false
+var _current_throttle := 0.0
 var _lateral_grip_mod := 1.0
 
 var _blink_timer := 0.0
@@ -135,11 +136,17 @@ var current_camera_index := 0
 #endregion
 
 #region --- Godot Lifecycle & Setup ---
+var _debug_timer := 0.0
+
 func _ready():
 	_setup_wheels_and_com()
 	_setup_smooth_camera()
 	_setup_collision_detection()
 	_setup_hud()
+	
+	# Set center of mass for proper balance
+	center_of_mass_mode = CENTER_OF_MASS_MODE_CUSTOM
+	center_of_mass = center_of_mass_offset
 	
 	current_health = max_health
 	current_fuel = max_fuel
@@ -168,6 +175,9 @@ func _physics_process(delta: float):
 		throttle = 0
 		reverse = 0
 		is_boosting = false
+	
+	_is_actually_boosting = is_boosting
+	_current_throttle = throttle - reverse
 
 	_update_drift_state(throttle, brake, delta)
 	_update_airborne_state(delta)
@@ -178,12 +188,22 @@ func _physics_process(delta: float):
 		_ground_stabilization(delta)
 		if anti_roll_strength > 0 and grounded_wheels >= 3:
 			var roll = global_transform.basis.get_euler().z
-			if abs(roll) > deg_to_rad(5):
-				apply_torque(global_transform.basis.z * -roll * anti_roll_strength * mass * 0.1 * delta)
+			# Only apply anti-roll for extreme angles (allow natural body roll during steering)
+			if abs(roll) > deg_to_rad(15):  # Increased from 5° to 15°
+				apply_torque(global_transform.basis.z * -roll * anti_roll_strength * mass * 0.05 * delta)  # Reduced from 0.1 to 0.05
 	else:
 		if enable_air_control: 
 			_air_control(delta, steer_input, throttle, reverse)
 		_stabilize_in_air(delta)
+	
+	# CRITICAL: Also stabilize during partial landings (1-2 wheels grounded)
+	if grounded_wheels > 0 and grounded_wheels < 3:
+		var euler = global_transform.basis.get_euler()
+		var target_rotation = Vector3(0, euler.y, 0)
+		var error = target_rotation - euler
+		var landing_torque = global_transform.basis * error * auto_stabilization * 2.0 * mass
+		apply_torque(landing_torque)
+		angular_velocity *= 0.50  # Extreme damping during landing
 
 	for i in range(wheels.size()):
 		var particles = wheel_particles[i] if i < wheel_particles.size() else null
@@ -209,13 +229,27 @@ func _process(_delta: float):
 
 #region --- Setup Functions ---
 func _setup_wheels_and_com():
+	# Wheels now have their own suspension settings configured in the scene
+	# We rely on user settings or project defaults, but check for 0 values
 	for wheel in wheels:
-		wheel.target_position.y = -(suspension_travel + wheel_radius)
+		if wheel.spring_strength <= 0:
+			wheel.spring_strength = 20000.0
+		if wheel.rest_distance <= 0:
+			wheel.rest_distance = 0.5
+		if wheel.wheel_radius <= 0:
+			wheel.wheel_radius = 0.4
+	
+	# Calculate the axle midpoint for steering logic
 	if wheels.size() > 0:
 		var total_z = 0.0
 		for wheel in wheels: 
 			total_z += wheel.position.z
 		_axle_mid_point_z = total_z / wheels.size()
+		
+	# Check if Blur Shader is correctly setup
+	if is_instance_valid(speed_blur_rect):
+		if not speed_blur_rect.material is ShaderMaterial:
+			push_warning("RaycastCar: speed_blur_rect found but missing a ShaderMaterial! Blur effect won't show.")
 
 func _setup_smooth_camera():
 	if cameras.is_empty(): 
@@ -241,65 +275,49 @@ func _setup_hud():
 #endregion
 
 #region --- Core Physics & Movement ---
-func _process_wheel(ray: RayCast3D, throttle: float, reverse: float, brake: float, is_boosting: bool, particles: GPUParticles3D, delta: float):
-	if ray.position.z < _axle_mid_point_z: 
-		ray.rotation.y = current_steer_angle
-	elif enable_rear_steer: 
-		ray.rotation.y = -current_steer_angle * rear_steer_ratio
-	else: 
-		ray.rotation.y = 0
-
-	var wheel_mesh = ray.get_node("wheel")
-	if not ray.is_colliding():
-		if particles: 
-			particles.emitting = false
-		wheel_mesh.position.y = lerp(wheel_mesh.position.y, -suspension_travel, 0.1)
-		return
-
-	if particles: 
-		particles.emitting = _is_drifting
-	var contact_point = ray.get_collision_point()
-	#TODO var contact_point = ray.wheels.global_position
-	var tire_vel = linear_velocity + angular_velocity.cross(contact_point - global_position)
-
-	var current_spring_len = ray.global_position.distance_to(contact_point) - wheel_radius
-	var compression = (suspension_travel * 0.5) - current_spring_len
-	var spring_force_mag = spring_strength * compression
-	var damping_force = spring_damping * ray.global_basis.y.dot(tire_vel)
-	var total_sus_force = max(0.0, spring_force_mag - damping_force) * ray.global_basis.y
-
-	var tire_fwd_dir = -ray.global_basis.z
-	var fwd_speed = tire_fwd_dir.dot(tire_vel)
-	var desired_force_mag = 0.0
+func _process_wheel(wheel: RaycastWheel, throttle: float, reverse: float, brake: float, is_boosting: bool, particles: GPUParticles3D, delta: float):
+	"""Process a single wheel using the new RaycastWheel system."""
+	
+	# Calculate steer input for this wheel
+	var steer_input: float = 0.0
+	if wheel.is_steerable:
+		steer_input = current_steer_angle
+	elif enable_rear_steer and wheel.position.z > _axle_mid_point_z:
+		steer_input = -current_steer_angle * rear_steer_ratio
+	
+	# Apply visual steering rotation
+	wheel.rotation.y = steer_input
+	
+	# Calculate engine force with torque curve
+	var engine_force: float = 0.0
+	var fwd_speed: float = abs(-wheel.global_basis.z.dot(linear_velocity))
+	
 	if throttle > 0:
-		var torque_curve = 1.0 - pow(abs(fwd_speed) / max_speed, 2.0)
-		var power_mult = boost_power / engine_power if is_boosting else 1.0
-		desired_force_mag = throttle * mass * (max_speed / acceleration_time) * power_mult / wheels.size() * torque_curve
+		var torque_curve: float = clamp(1.0 - (fwd_speed / max_speed), 0.0, 1.0)
+		var power_mult: float = boost_power / engine_power if is_boosting else 1.0
+		engine_force = engine_power * power_mult * torque_curve / wheels.size()
+		if _is_drifting:
+			engine_force *= drift_power_multiplier
 	elif reverse > 0:
-		var torque_curve = 1.0 - pow(abs(fwd_speed) / max_reverse_speed, 2.0)
-		desired_force_mag = -reverse * mass * (max_reverse_speed / reverse_acceleration_time) / wheels.size() * torque_curve
-	if _is_drifting: 
-		desired_force_mag *= drift_power_multiplier
-	if brake > 0:
-		if abs(fwd_speed) > 0.5:
-			desired_force_mag -= sign(fwd_speed) * brake * brake_power * (mass / wheels.size())
-		else:
-			desired_force_mag = 0.0
-	var max_long_grip = max(0.0, spring_force_mag) * longitudinal_grip
-	var final_accel_mag = clamp(desired_force_mag, -max_long_grip, max_long_grip)
-	if abs(final_accel_mag) < 0.01 and abs(fwd_speed) > 0.1:
-		final_accel_mag = -sign(fwd_speed) * rolling_resistance * (mass / wheels.size())
-	var accel_force = tire_fwd_dir * final_accel_mag
-
-	var tire_right_dir = ray.global_basis.x
-	var lateral_vel = tire_right_dir.dot(tire_vel)
-	var desired_friction = -lateral_vel * (mass / wheels.size()) * 10.0
-	var max_lat_grip = max(0.0, spring_force_mag) * tire_grip * _lateral_grip_mod
-	var friction_force = tire_right_dir * clamp(desired_friction, -max_lat_grip, max_lat_grip)
-
-	apply_force(total_sus_force + friction_force + accel_force, contact_point - global_position)
-	wheel_mesh.rotate_x(-(fwd_speed / wheel_radius) * delta)
-	wheel_mesh.position.y = -current_spring_len
+		var torque_curve: float = clamp(1.0 - (fwd_speed / max_reverse_speed), 0.0, 1.0)
+		engine_force = engine_power * torque_curve / wheels.size()
+	
+	# Calculate brake force - clamped to mass to prevent physics explosions
+	var brake_force_val: float = brake * brake_power * (mass / wheels.size())
+	
+	# Delegate to wheel's physics processing
+	var wheel_state := wheel.process_wheel_physics(
+		delta,
+		steer_input,
+		throttle if throttle > 0 else -reverse,
+		brake,
+		engine_force,
+		brake_force_val
+	)
+	
+	# Update particles based on wheel state
+	if particles:
+		particles.emitting = wheel_state.get("grounded", false) and _is_drifting
 
 func apply_downforce():
 	if downforce_factor <= 0: 
@@ -329,13 +347,22 @@ func _update_drift_state(throttle: float, brake: float, delta: float):
 	var target_grip_mod = 1.0
 	if not is_airborne:
 		var total_slip_ratio = 0.0
+		var avg_tire_grip = 0.0
+		var grip_wheel_count = 0
+		
 		for wheel in wheels:
 			if not wheel.is_colliding(): 
 				continue
 			var tire_vel = linear_velocity + angular_velocity.cross(wheel.get_collision_point() - global_position)
 			total_slip_ratio += abs(wheel.global_basis.x.dot(tire_vel))
+			avg_tire_grip += wheel.tire_grip
+			grip_wheel_count += 1
+		
+		if grip_wheel_count > 0:
+			avg_tire_grip /= grip_wheel_count
+		
 		var is_brake_boosting = throttle > 0.5 and brake > 0.5 and linear_velocity.length() > 1.0
-		var is_naturally_drifting = total_slip_ratio > tire_grip * drift_threshold * grounded_wheels
+		var is_naturally_drifting = total_slip_ratio > avg_tire_grip * drift_threshold * grounded_wheels
 		
 		_is_drifting = is_brake_boosting or is_naturally_drifting
 		
@@ -359,7 +386,12 @@ func _update_airborne_state(delta: float):
 
 func _update_steering(steer_input: float, delta: float):
 	if not is_airborne:
-		current_steer_angle = lerp(current_steer_angle, steer_input * deg_to_rad(steer_angle), 12.0 * delta)
+		# Speed-sensitive steering: Reduce max angle at high speed for stability
+		var speed_ratio = clamp(linear_velocity.length() / max_speed, 0.0, 1.0)
+		var sensitivity = lerp(1.0, 0.5, speed_ratio) # 50% angle at max speed
+		
+		var target_angle = steer_input * deg_to_rad(steer_angle) * sensitivity
+		current_steer_angle = lerp(current_steer_angle, target_angle, steer_speed * delta)
 	else:
 		current_steer_angle = lerp(current_steer_angle, 0.0, 5.0 * delta)
 #endregion
@@ -408,7 +440,20 @@ func _update_damage_particles():
 #region --- Visuals & UI ---
 func _update_hud():
 	if is_instance_valid(speed_label): 
-		speed_label.text = str(int(linear_velocity.length() * 3.6))
+		var speed_kmh = int(linear_velocity.length() * 3.6)
+		speed_label.text = str(speed_kmh)
+		
+		# Ensure scaling is centered
+		speed_label.pivot_offset = speed_label.size / 2.0
+		
+		# Visceral HUD Scaling: Label gets bigger as you go faster
+		var speed_ratio = linear_velocity.length() / max_speed
+		var hud_scale = lerp(1.0, 1.3, clamp(speed_ratio, 0.0, 1.2))
+		speed_label.scale = Vector2(hud_scale, hud_scale)
+		
+		# Color shift (White to Red at high speed)
+		speed_label.modulate = Color(1.0, 1.0 - (speed_ratio * 0.3), 1.0 - (speed_ratio * 0.6))
+		
 	if is_instance_valid(boost_bar): 
 		boost_bar.max_value = max_boost_fuel
 		boost_bar.value = current_boost_fuel
@@ -461,12 +506,43 @@ func _process_camera_smoothness(delta):
 	
 	# Only apply speed-based effects when alive
 	if current_health > 0:
-		var speed_ratio = clamp(linear_velocity.length() / max_speed, 0.0, 1.0)
-		_render_camera.fov = lerp(_render_camera.fov, target_cam.fov + (dynamic_fov_increase * speed_ratio), camera_fov_smooth_speed * delta)
+		var speed_val = linear_velocity.length()
+		var speed_ratio = clamp(speed_val / max_speed, 0.0, 1.2) # Allow slight over-ratio for boost
 		
+		# 1. Dynamic FOV (Warp effect)
+		var target_fov = target_cam.fov + (dynamic_fov_increase * speed_ratio)
+		
+		# Add extra zoom-out if we are flooring it
+		if _current_throttle > 0:
+			target_fov += throttle_fov_increase * _current_throttle
+			
+		# Multiply further if boosting
+		if _is_actually_boosting:
+			target_fov *= boost_fov_multiplier
+		
+		_render_camera.fov = lerp(_render_camera.fov, target_fov, camera_fov_smooth_speed * delta)
+		
+		# (Removed G-Force Tilt as requested)
+		
+		# 2. Speed-based Shader Blur/Intensity
+		if is_instance_valid(speed_blur_rect):
+			var mat = speed_blur_rect.material as ShaderMaterial
+			if mat:
+				# ONLY show effect when boosting
+				var target_intensity = 0.0
+				if _is_actually_boosting: 
+					target_intensity = clamp(speed_ratio + 0.2, 0.0, 1.0)
+				
+				# Smoothly fade the intensity in/out
+				var current_val = mat.get_shader_parameter("speed_intensity")
+				var new_val = lerp(float(current_val), target_intensity, 15.0 * delta)
+				mat.set_shader_parameter("speed_intensity", new_val)
+		
+		# 4. Speed-based Shake
 		if shake_noise:
 			_shake_noise_time += camera_shake_speed * delta
 			var shake_speed_mod = pow(speed_ratio, 2.0)
+			if _is_actually_boosting: shake_speed_mod *= 1.5
 			var s = shake_speed_mod * camera_shake_intensity
 			var n1 = shake_noise.get_noise_2d(_shake_noise_time, 0) * s
 			var n2 = shake_noise.get_noise_2d(0, _shake_noise_time) * s
@@ -475,8 +551,9 @@ func _process_camera_smoothness(delta):
 			var rn = shake_noise.get_noise_2d(_shake_noise_time * 0.7, 123.45) * rs
 			new_xform.basis = new_xform.basis.rotated(new_xform.basis.z, rn)
 	else:
-		# When destroyed, use normal FOV without speed effects
 		_render_camera.fov = lerp(_render_camera.fov, target_cam.fov, camera_fov_smooth_speed * delta)
+		if is_instance_valid(speed_blur_rect) and speed_blur_rect.material:
+			speed_blur_rect.material.set_shader_parameter("speed_intensity", 0.0)
 	
 	_render_camera.global_transform = new_xform
 #endregion
@@ -501,9 +578,21 @@ func _air_control(delta: float, steer: float, throttle: float, reverse: float):
 		angular_velocity *= (1.0 - air_brake_strength * delta)
 
 func _stabilize_in_air(delta: float):
-	var err = Vector3(0, global_transform.basis.get_euler().y, 0) - global_transform.basis.get_euler()
-	apply_torque(global_transform.basis * err * auto_stabilization * mass)
-	angular_velocity *= 0.93
+	"""Strongly stabilize pitch and roll while preserving yaw."""
+	var euler = global_transform.basis.get_euler()
+	
+	# Target: level pitch (0) and roll (0), keep current yaw
+	var target_rotation = Vector3(0, euler.y, 0)
+	var error = target_rotation - euler
+	
+	# Apply strong correction torque
+	var stabilization_torque = global_transform.basis * error * auto_stabilization * mass
+	apply_torque(stabilization_torque)
+	
+	# Delta-aware angular velocity damping
+	var airborne_damping := 5.0 # Strength of damping
+	var damping_factor := exp(-airborne_damping * delta)
+	angular_velocity *= damping_factor
 
 func _ground_stabilization(delta: float):
 	var rot = global_transform.basis.get_euler()

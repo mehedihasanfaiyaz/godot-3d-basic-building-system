@@ -1,4 +1,6 @@
-[gd_scene load_steps=2 format=3 uid="uid://bvq8x7y3m4n5p"]
+[gd_scene load_steps=5 format=3 uid="uid://bvq8x7y3m4n5p"]
+
+[ext_resource type="Shader" uid="uid://dudiiqjdkh6go" path="res://speed_wrap.gdshader" id="1_v2coe"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_1"]
 bg_color = Color(0.2, 0.2, 0.2, 0.8)
@@ -11,6 +13,12 @@ corner_radius_top_left = 5
 corner_radius_top_right = 5
 corner_radius_bottom_right = 5
 corner_radius_bottom_left = 5
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_xjmdf"]
+shader = ExtResource("1_v2coe")
+shader_parameter/speed_intensity = 0.0
+
+[sub_resource type="Theme" id="Theme_8skkj"]
 
 [node name="VehicleHUD" type="CanvasLayer"]
 
@@ -93,7 +101,6 @@ horizontal_alignment = 1
 unique_name_in_owner = true
 custom_minimum_size = Vector2(200, 25)
 layout_mode = 2
-max_value = 100.0
 value = 100.0
 show_percentage = false
 
@@ -136,9 +143,7 @@ horizontal_alignment = 1
 unique_name_in_owner = true
 custom_minimum_size = Vector2(200, 25)
 layout_mode = 2
-max_value = 100.0
 value = 100.0
-show_percentage = true
 
 [node name="FuelPanel" type="PanelContainer" parent="Control/BottomRight"]
 layout_mode = 2
@@ -166,6 +171,16 @@ horizontal_alignment = 1
 unique_name_in_owner = true
 custom_minimum_size = Vector2(200, 25)
 layout_mode = 2
-max_value = 100.0
 value = 100.0
-show_percentage = true
+
+[node name="ColorRect" type="ColorRect" parent="Control"]
+material = SubResource("ShaderMaterial_xjmdf")
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+size_flags_horizontal = 4
+size_flags_vertical = 4
+theme = SubResource("Theme_8skkj")

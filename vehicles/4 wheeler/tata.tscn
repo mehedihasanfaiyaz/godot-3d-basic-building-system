@@ -127,16 +127,16 @@ albedo_color = Color(0.16924527, 0.1692453, 0.16924527, 1)
 material = SubResource("StandardMaterial3D_e118d")
 size = Vector3(0.3, 0.3, 0.3)
 
-[node name="tata" type="RigidBody3D" node_paths=PackedStringArray("wheels", "damage_smoke_particles", "destruction_fire_particles", "destruction_smoke_particles", "vehicle_hud", "front_lights", "rear_lights", "left_indicators", "right_indicators", "cameras")]
+[node name="tata" type="RigidBody3D" node_paths=PackedStringArray("wheels", "damage_smoke_particles", "destruction_fire_particles", "destruction_smoke_particles", "vehicle_hud", "speed_blur_rect", "front_lights", "rear_lights", "left_indicators", "right_indicators", "cameras")]
 mass = 1000.0
 gravity_scale = 2.0
 script = ExtResource("1_uig02")
 wheels = [NodePath("wheelFL"), NodePath("wheelRL"), NodePath("wheelFR"), NodePath("wheelRR")]
-tire_grip = 50.0
 grip_change_speed = 10.0
 max_boost_fuel = 10000.0
 boost_consumption = 1000.0
 boost_recharge = 10000.0
+max_health = 10.0
 max_fuel = 1000.0
 fuel_consumption_rate = 1.0
 fuel_boost_multiplier = 2.0
@@ -145,41 +145,62 @@ damage_smoke_particles = NodePath("DamageSmoke")
 destruction_fire_particles = NodePath("DestructionFire")
 destruction_smoke_particles = NodePath("DestructionSmoke")
 vehicle_hud = NodePath("VehicleHUD")
+speed_blur_rect = NodePath("VehicleHUD/Control/ColorRect")
 front_lights = [NodePath("Front Lights/MeshInstance3D"), NodePath("Front Lights/MeshInstance3D2")]
 rear_lights = [NodePath("backLights/right"), NodePath("backLights/left")]
 left_indicators = [NodePath("backLights2/right")]
 right_indicators = [NodePath("backLights2/left")]
-cameras = [NodePath("top"), NodePath("FD"), NodePath("RL"), NodePath("RR"), NodePath("back")]
+cameras = [NodePath("cameras/top"), NodePath("cameras/FD"), NodePath("cameras/RL"), NodePath("cameras/RR"), NodePath("cameras/back"), NodePath("cameras/RR2")]
 
-[node name="FD" type="Camera3D" parent="."]
+[node name="cameras" type="Node3D" parent="."]
+
+[node name="FD" type="Camera3D" parent="cameras"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.74069285, -0.6932132)
 
-[node name="RR" type="Camera3D" parent="."]
-transform = Transform3D(0.58176625, -0.26361224, 0.7694522, -0.0669873, 0.9272782, 0.36833075, -0.81059283, -0.26582587, 0.5218006, 2.6395316, 2.3207777, 3.3524294)
+[node name="RR" type="Camera3D" parent="cameras"]
+transform = Transform3D(0.58176625, -0.26361227, 0.7694522, -0.0669873, 0.9272784, 0.3683308, -0.81059283, -0.26582596, 0.5218006, 2.6395316, 2.3207777, 3.3524294)
 
-[node name="RL" type="Camera3D" parent="."]
-transform = Transform3D(0.7197494, 0.2550093, -0.6457022, 0.0034725897, 0.92875874, 0.3706686, 0.69422543, -0.26903066, 0.6675879, -2.5126457, 2.3206463, 3.3728356)
+[node name="RL" type="Camera3D" parent="cameras"]
+transform = Transform3D(0.7197494, 0.25500926, -0.6457021, 0.0034725897, 0.92875874, 0.37066856, 0.69422543, -0.2690307, 0.66758794, -2.5126457, 2.3206463, 3.3728356)
 
-[node name="top" type="Camera3D" parent="."]
+[node name="top" type="Camera3D" parent="cameras"]
 transform = Transform3D(1, 0, 0, 0, 0.86123914, 0.50819993, 0, -0.50819993, 0.86123914, 0, 1.8841288, 3.3401408)
 
-[node name="back" type="Camera3D" parent="."]
+[node name="back" type="Camera3D" parent="cameras"]
 transform = Transform3D(-1, -4.4428248e-08, 7.5291915e-08, 0, 0.86123914, 0.50819993, -8.742278e-08, 0.50819993, -0.86123914, 0, 1.884, -3.34)
 
+[node name="RR2" type="Camera3D" parent="cameras"]
+transform = Transform3D(0.6912064, -0.2230972, 0.6873583, 0.025009707, 0.95796883, 0.28578007, -0.7222246, -0.18034236, 0.6677338, 2.6395316, -0.15718955, 3.3524294)
+
+[node name="RL2" type="Camera3D" parent="cameras"]
+transform = Transform3D(0.7197494, 0.25500926, -0.6457021, 0.0034725897, 0.92875874, 0.37066856, 0.69422543, -0.2690307, 0.66758794, -2.5126457, 0.43742466, 3.3728356)
+
+[node name="top2" type="Camera3D" parent="cameras"]
+transform = Transform3D(1, 0, 0, 0, 0.86123914, 0.50819993, 0, -0.50819993, 0.86123914, 0, 0.0009071827, 3.3401408)
+
+[node name="back2" type="Camera3D" parent="cameras"]
+transform = Transform3D(-1, -4.4428248e-08, 7.5291915e-08, 0, 0.86123914, 0.50819993, -8.742278e-08, 0.50819993, -0.86123914, 0, 0.00077831745, -3.34)
+
 [node name="carmesh" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.15358031, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.32321918, 0)
 mesh = SubResource("BoxMesh_036b0")
+metadata/_edit_group_ = true
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="carmesh"]
 transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 0, 0.2940302, 1.3321726)
 mesh = SubResource("BoxMesh_pkg7o")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3231691, 0)
 shape = SubResource("BoxShape3D_gbfbk")
+metadata/_edit_group_ = true
 
 [node name="wheelFL" type="RayCast3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 0, -1.3)
 script = ExtResource("4_rky6f")
+is_motor = true
+is_steerable = true
+tire_grip = 5.0
 
 [node name="wheel" type="MeshInstance3D" parent="wheelFL"]
 transform = Transform3D(-4.371139e-08, -1, 0, 1, -4.371139e-08, 0, 0, 0, 1, 0, -0.5, 0)
@@ -199,6 +220,7 @@ max_results = 3
 [node name="wheelRL" type="RayCast3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 0, 1.3)
 script = ExtResource("4_rky6f")
+tire_grip = 5.0
 
 [node name="wheel" type="MeshInstance3D" parent="wheelRL"]
 transform = Transform3D(-4.371139e-08, -1, 0, 1, -4.371139e-08, 0, 0, 0, 1, 0, -0.5, 0)
@@ -216,8 +238,11 @@ target_position = Vector3(0, 0, 0)
 max_results = 3
 
 [node name="wheelFR" type="RayCast3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.0008272, 0, -1.3)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, -1.3)
 script = ExtResource("4_rky6f")
+is_motor = true
+is_steerable = true
+tire_grip = 5.0
 
 [node name="wheel" type="MeshInstance3D" parent="wheelFR"]
 transform = Transform3D(-4.371139e-08, -1, 0, 1, -4.371139e-08, 0, 0, 0, 1, 0, -0.5, 0)
@@ -235,8 +260,9 @@ target_position = Vector3(0, 0, 0)
 max_results = 3
 
 [node name="wheelRR" type="RayCast3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.0008272, 0, 1.3)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 1.3)
 script = ExtResource("4_rky6f")
+tire_grip = 5.0
 
 [node name="wheel" type="MeshInstance3D" parent="wheelRR"]
 transform = Transform3D(-4.371139e-08, -1, 0, 1, -4.371139e-08, 0, 0, 0, 1, 0, -0.5, 0)
@@ -256,7 +282,8 @@ max_results = 3
 [node name="VehicleHUD" parent="." instance=ExtResource("2_exmno")]
 
 [node name="Front Lights" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -1.9777416)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.24046814, -1.9777416)
+metadata/_edit_group_ = true
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="Front Lights"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.708289, 0, 0)
@@ -267,7 +294,8 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.6941339, 0, 0)
 mesh = SubResource("BoxMesh_exmno")
 
 [node name="backLights" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1.978)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.20383036, 1.978)
+metadata/_edit_group_ = true
 
 [node name="right" type="MeshInstance3D" parent="backLights"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.708, 0, 0)
@@ -278,7 +306,8 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.7004048, 0, 0)
 mesh = SubResource("BoxMesh_6rns8")
 
 [node name="backLights2" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 2.403734)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.20383036, 2.403734)
+metadata/_edit_group_ = true
 
 [node name="right" type="MeshInstance3D" parent="backLights2"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.9561527, 0, -0.43545413)
