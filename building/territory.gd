@@ -1,6 +1,6 @@
 extends StaticBody3D
 
-@export var territory_size: float = 40.0
+@export var territory_size: float = 44.0
 @onready var area_indicator = $AreaIndicator
 
 func _ready():

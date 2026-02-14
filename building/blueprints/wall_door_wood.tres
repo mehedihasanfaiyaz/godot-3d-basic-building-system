@@ -6,7 +6,7 @@
 script = ExtResource("2_script")
 name = "Wooden Doorframe"
 category = "Structures"
-sub_category = "Doors/Windows"
+sub_category = "Walls"
 scene = ExtResource("1_scene")
 cost = {
 "Wood": 12

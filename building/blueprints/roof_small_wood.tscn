@@ -1,52 +1,70 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=5 format=3 uid="uid://dve4ncv86gjaj"]
 
-[sub_resource type="BoxShape3D" id="BoxShape3D_small_roof"]
-size = Vector3(2, 0.2, 2)
+[ext_resource type="Material" uid="uid://cxnyv0yrwb3tf" path="res://building/materials/wood.tres" id="1_wood"]
+[ext_resource type="Script" uid="uid://cm4hn6xnrau0b" path="res://building/building_socket.gd" id="building_socket_gd"]
 
 [sub_resource type="BoxMesh" id="BoxMesh_small_roof"]
 size = Vector3(2, 0.2, 2)
 
-[node name="RoofSmallWood" type="StaticBody3D"]
-collision_layer = 2
+[sub_resource type="BoxShape3D" id="BoxShape3D_small_roof"]
+size = Vector3(1.9, 0.15, 1.9)
+
+[node name="RoofSmallWood" type="StaticBody3D" groups=["structure"]]
+collision_layer = 4
+collision_mask = 0
+metadata/blueprint_name = "Small Wood Roof"
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, 0)
+mesh = SubResource("BoxMesh_small_roof")
+surface_material_override/0 = ExtResource("1_wood")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, 0)
 shape = SubResource("BoxShape3D_small_roof")
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, 0)
-mesh = SubResource("BoxMesh_small_roof")
+[node name="Occupancy" type="Node3D" parent="."]
+metadata/shape = "box"
+metadata/size = Vector3(1.9, 0.15, 1.9)
 
 [node name="Sockets" type="Node3D" parent="."]
 
 [node name="Socket_N" type="Marker3D" parent="Sockets" groups=["socket"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -2)
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, -1)
+script = ExtResource("building_socket_gd")
 metadata/type = "roof"
 
 [node name="Socket_S" type="Marker3D" parent="Sockets" groups=["socket"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 2)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1)
+script = ExtResource("building_socket_gd")
 metadata/type = "roof"
 
 [node name="Socket_E" type="Marker3D" parent="Sockets" groups=["socket"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 0, 0)
+transform = Transform3D(-4.37114e-08, 0, 1, 0, 1, 0, -1, 0, -4.37114e-08, 1, 0, 0)
+script = ExtResource("building_socket_gd")
 metadata/type = "roof"
 
 [node name="Socket_W" type="Marker3D" parent="Sockets" groups=["socket"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2, 0, 0)
+transform = Transform3D(-4.37114e-08, 0, -1, 0, 1, 0, 1, 0, -4.37114e-08, -1, 0, 0)
+script = ExtResource("building_socket_gd")
 metadata/type = "roof"
 
-[node name="WallSocket_N" type="Marker3D" parent="Sockets" groups=["socket"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.2, -1)
-metadata/type = "wall"
+[node name="Socket_E2" type="Marker3D" parent="Sockets" groups=["socket"]]
+transform = Transform3D(-4.37114e-08, 0, 1, 0, 1, 0, -1, 0, -4.37114e-08, 1, 0, 0.99844)
+script = ExtResource("building_socket_gd")
+metadata/type = "roof"
 
-[node name="WallSocket_S" type="Marker3D" parent="Sockets" groups=["socket"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.2, 1)
-metadata/type = "wall"
+[node name="Socket_W2" type="Marker3D" parent="Sockets" groups=["socket"]]
+transform = Transform3D(-4.37114e-08, 0, -1, 0, 1, 0, 1, 0, -4.37114e-08, -1, 0, 0.99844)
+script = ExtResource("building_socket_gd")
+metadata/type = "roof"
 
-[node name="WallSocket_E" type="Marker3D" parent="Sockets" groups=["socket"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0.2, 0)
-metadata/type = "wall"
+[node name="Socket_E3" type="Marker3D" parent="Sockets" groups=["socket"]]
+transform = Transform3D(-4.37114e-08, 0, 1, 0, 1, 0, -1, 0, -4.37114e-08, 1, 0, -0.9997729)
+script = ExtResource("building_socket_gd")
+metadata/type = "roof"
 
-[node name="WallSocket_W" type="Marker3D" parent="Sockets" groups=["socket"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 0.2, 0)
-metadata/type = "wall"
+[node name="Socket_W3" type="Marker3D" parent="Sockets" groups=["socket"]]
+transform = Transform3D(-4.37114e-08, 0, -1, 0, 1, 0, 1, 0, -4.37114e-08, -1, 0, -0.9997729)
+script = ExtResource("building_socket_gd")
+metadata/type = "roof"

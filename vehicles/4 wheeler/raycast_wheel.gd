@@ -39,6 +39,9 @@ var visual_radius: float = 0.0
 var vehicle_body: RigidBody3D
 
 func _ready() -> void:
+	# MASK 5: Collide with World (1) and Structures (4)
+	collision_mask = 5
+	
 	vehicle_body = get_parent() as RigidBody3D
 	if not vehicle_body: return
 
@@ -62,6 +65,7 @@ func _ready() -> void:
 	
 	if shape_cast:
 		shape_cast.enabled = true
+		shape_cast.collision_mask = 5
 		shape_cast.add_exception(vehicle_body)
 		# Force ShapeCast to Axel Center (0,0,0)
 		shape_cast.position = Vector3.ZERO

@@ -75,6 +75,9 @@ func _ready() -> void:
 	current_sanity = max_sanity
 	current_energy = max_energy
 	
+	# Ensure collision with Bit 3 (STRUCTURES)
+	collision_mask |= 8
+	
 	# Initialize Inventory
 	inventory_data = InventoryData.new()
 	for i in range(24):
@@ -182,7 +185,8 @@ func _update_interaction(delta: float):
 	var origin = camera.project_ray_origin(mouse_pos)
 	var end = origin + camera.project_ray_normal(mouse_pos) * 4.0
 	var query = PhysicsRayQueryParameters3D.create(origin, end)
-	query.collision_mask = 3 # Vehicles and Items
+	# MASK 15: World (1), Items (2), Vehicles (4), Structures (8)
+	query.collision_mask = 1 | 2 | 4 | 8 
 	
 	var result = space_state.intersect_ray(query)
 	var new_target = null

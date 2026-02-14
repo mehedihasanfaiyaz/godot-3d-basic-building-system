@@ -1,42 +1,68 @@
-[gd_scene load_steps=0 format=3 uid="uid://073xp2njjt7l"]
+[gd_scene load_steps=5 format=3 uid="uid://dxxsi0rlmgdtk"]
 
-[node name="FoundationWoodInwardCurveSmall" type="StaticBody3D"]
-collision_layer = 3
+[ext_resource type="Material" uid="uid://cxnyv0yrwb3tf" path="res://building/materials/wood.tres" id="1_wood"]
+[ext_resource type="Script" uid="uid://cm4hn6xnrau0b" path="res://building/building_socket.gd" id="building_socket_gd"]
+
+[node name="FoundationWoodInwardCurveSmall" type="StaticBody3D" groups=["structure"]]
+collision_layer = 5
+collision_mask = 0
+metadata/blueprint_name = "Small Inward Curved Foundation"
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.25, 0)
 
-[node name="CurveMesh" type="CSGCombiner3D" parent="MeshInstance3D"]
-use_collision = true
+[node name="MainMesh" type="CSGCombiner3D" parent="MeshInstance3D"]
+material_override = ExtResource("1_wood")
+use_collision = false
 
-[node name="Square" type="CSGBox3D" parent="MeshInstance3D/CurveMesh"]
-size = Vector3(2, 0.5, 2)
+[node name="BaseSquare" type="CSGBox3D" parent="MeshInstance3D/MainMesh"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.05, 0)
+size = Vector3(2, 0.4, 2)
 
-[node name="Cylinder" type="CSGCylinder3D" parent="MeshInstance3D/CurveMesh"]
+[node name="Border_E" type="CSGBox3D" parent="MeshInstance3D/MainMesh"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.925, 0, 0)
+size = Vector3(0.15, 0.5, 2)
+
+[node name="Border_S" type="CSGBox3D" parent="MeshInstance3D/MainMesh"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0.925)
+size = Vector3(2, 0.5, 0.15)
+
+[node name="CurveRim" type="CSGCylinder3D" parent="MeshInstance3D/MainMesh"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 0, -1)
-operation = 2
 radius = 2.0
+height = 0.5
+sides = 32
+
+[node name="CurveRimCut" type="CSGCylinder3D" parent="MeshInstance3D/MainMesh/CurveRim"]
+operation = 2
+radius = 1.85
 height = 0.6
 sides = 32
 
+[node name="MainCutout" type="CSGCylinder3D" parent="MeshInstance3D/MainMesh"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 0, -1)
+operation = 2
+radius = 2.0
+height = 0.7
+sides = 32
+
+[node name="Occupancy" type="Node3D" parent="."]
+metadata/shape = "inward_curve"
+metadata/size = Vector3(2, 0.5, 2)
+
 [node name="Sockets" type="Node3D" parent="."]
 
-[node name="Socket_Corner" type="Marker3D" parent="Sockets" groups=["socket"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 1)
-metadata/type = "foundation"
-
 [node name="Socket_East" type="Marker3D" parent="Sockets" groups=["socket"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0)
+transform = Transform3D(-4.37114e-08, 0, 1, 0, 1, 0, -1, 0, -4.37114e-08, 1, 0, 0)
+script = ExtResource("building_socket_gd")
 metadata/type = "foundation"
 
 [node name="Socket_South" type="Marker3D" parent="Sockets" groups=["socket"]]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1)
+script = ExtResource("building_socket_gd")
 metadata/type = "foundation"
 
-[node name="WallSocket_East" type="Marker3D" parent="Sockets" groups=["socket"]]
-transform = Transform3D(0, 0, -1, 0, 1, 0, 1, 0, 0, 1, 0.5, 0)
-metadata/type = "wall"
-
-[node name="WallSocket_South" type="Marker3D" parent="Sockets" groups=["socket"]]
-transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0.5, 1)
-metadata/type = "wall"
+[node name="Socket_Curve_Mid" type="Marker3D" parent="Sockets" groups=["socket"]]
+transform = Transform3D(0.707107, 0, -0.707107, 0, 1, 0, 0.707107, 0, 0.707107, 0.414, 0, 0.414)
+script = ExtResource("building_socket_gd")
+metadata/type = "foundation"

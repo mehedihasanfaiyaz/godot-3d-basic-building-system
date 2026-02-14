@@ -66,6 +66,12 @@ func update_interact_info(target):
 	elif "item_data" in target:
 		interact_name.text = target.item_data.item_name
 		interact_icon.texture = target.item_data.icon
+	elif target.has_meta("blueprint_name"):
+		interact_name.text = target.get_meta("blueprint_name")
+		interact_icon.texture = null
+	elif target.has_method("get_interact_text"):
+		interact_name.text = target.name # Fallback to node name if it has interaction
+		interact_icon.texture = null
 	else:
 		interact_name.text = "Object"
 		interact_icon.texture = null
@@ -83,6 +89,8 @@ func update_nearby_items(items: Array):
 		var label = Label.new()
 		if "item_data" in item:
 			label.text = item.item_data.item_name
+		elif item.has_meta("blueprint_name"):
+			label.text = item.get_meta("blueprint_name")
 		else:
 			label.text = item.name
 		label.add_theme_font_size_override("font_size", 12)

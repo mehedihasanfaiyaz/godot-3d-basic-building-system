@@ -1,36 +1,100 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=7 format=3 uid="uid://blhw616wdyavk"]
 
-[sub_resource type="BoxShape3D" id="BoxShape3D_small_wall"]
+[ext_resource type="Material" uid="uid://cxnyv0yrwb3tf" path="res://building/materials/wood.tres" id="1_wood"]
+[ext_resource type="Script" uid="uid://cm4hn6xnrau0b" path="res://building/building_socket.gd" id="2_socket"]
+
+[sub_resource type="BoxMesh" id="BoxMesh_Planks"]
+size = Vector3(1.8, 0.55, 0.15)
+
+[sub_resource type="BoxMesh" id="BoxMesh_FrameHoriz"]
+size = Vector3(2, 0.1, 0.25)
+
+[sub_resource type="BoxMesh" id="BoxMesh_FrameVert"]
+size = Vector3(0.1, 0.55, 0.25)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_wall"]
 size = Vector3(2, 0.75, 0.2)
 
-[sub_resource type="BoxMesh" id="BoxMesh_small_wall"]
-size = Vector3(2, 0.75, 0.2)
+[node name="WallSmallWood" type="StaticBody3D" groups=["structure"]]
+collision_layer = 4
+collision_mask = 0
+metadata/blueprint_name = "Small Wood Wall"
 
-[node name="WallSmallWood" type="StaticBody3D"]
-collision_layer = 2
+[node name="Planks" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.375, 0)
+mesh = SubResource("BoxMesh_Planks")
+surface_material_override/0 = ExtResource("1_wood")
+
+[node name="Frame_Top" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.7, 0)
+mesh = SubResource("BoxMesh_FrameHoriz")
+surface_material_override/0 = ExtResource("1_wood")
+
+[node name="Frame_Bottom" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.05, 0)
+mesh = SubResource("BoxMesh_FrameHoriz")
+surface_material_override/0 = ExtResource("1_wood")
+
+[node name="Frame_Left" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.95, 0.375, 0)
+mesh = SubResource("BoxMesh_FrameVert")
+surface_material_override/0 = ExtResource("1_wood")
+
+[node name="Frame_Right" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.95, 0.375, 0)
+mesh = SubResource("BoxMesh_FrameVert")
+surface_material_override/0 = ExtResource("1_wood")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.375, 0)
-shape = SubResource("BoxShape3D_small_wall")
+shape = SubResource("BoxShape3D_wall")
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.375, 0)
-mesh = SubResource("BoxMesh_small_wall")
+[node name="Occupancy" type="Node3D" parent="."]
+metadata/shape = "box"
+metadata/size = Vector3(1.9, 0.65, 0.1)
 
 [node name="Sockets" type="Node3D" parent="."]
 
+[node name="Socket_Bottom" type="Marker3D" parent="Sockets" groups=["socket"]]
+script = ExtResource("2_socket")
+metadata/type = "wall"
+
+[node name="Socket_Bottom2" type="Marker3D" parent="Sockets" groups=["socket"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.0010223, 0, 0)
+script = ExtResource("2_socket")
+metadata/type = "wall"
+
+[node name="Socket_Bottom3" type="Marker3D" parent="Sockets" groups=["socket"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.9976671, 0, 0)
+script = ExtResource("2_socket")
+metadata/type = "wall"
+
 [node name="Socket_Top" type="Marker3D" parent="Sockets" groups=["socket"]]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.75, 0)
-metadata/type = "wall"
-
-[node name="Socket_L" type="Marker3D" parent="Sockets" groups=["socket"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2, 0, 0)
-metadata/type = "wall"
-
-[node name="Socket_R" type="Marker3D" parent="Sockets" groups=["socket"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 0, 0)
+script = ExtResource("2_socket")
 metadata/type = "wall"
 
 [node name="Socket_Roof" type="Marker3D" parent="Sockets" groups=["socket"]]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.75, -1)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.75, 0)
+script = ExtResource("2_socket")
+metadata/type = "roof"
+
+[node name="Socket_Top2" type="Marker3D" parent="Sockets" groups=["socket"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.99973196, 0.75, 0)
+script = ExtResource("2_socket")
+metadata/type = "wall"
+
+[node name="Socket_Roof2" type="Marker3D" parent="Sockets" groups=["socket"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.99973196, 0.75, 0)
+script = ExtResource("2_socket")
+metadata/type = "roof"
+
+[node name="Socket_Top3" type="Marker3D" parent="Sockets" groups=["socket"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.99973196, 0.75, 0)
+script = ExtResource("2_socket")
+metadata/type = "wall"
+
+[node name="Socket_Roof3" type="Marker3D" parent="Sockets" groups=["socket"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.99973196, 0.75, 0)
+script = ExtResource("2_socket")
 metadata/type = "roof"

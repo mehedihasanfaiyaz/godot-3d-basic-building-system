@@ -26,15 +26,20 @@ var last_raw_hit_pos: Vector3 = Vector3.ZERO
 # Prediction & Ghost State
 var last_calculated_snap_pos: Vector3 = Vector3.ZERO
 var last_calculated_final_pos: Vector3 = Vector3.ZERO
+var last_calculated_final_rot: float = 0.0
 var last_socket_id: int = 0
 var aim_marker: MeshInstance3D = null
 var ghost_target_color: Color = Color(0, 0.6, 1, 0.4)
 var ghost_current_color: Color = Color(0, 0.6, 1, 0.4)
 var ghost_pulse_timer: float = 0.0
 var ghost_spawn_scale: float = 0.0
-var hit_pos_history: Array[Vector3] = []
-var smoothing_frames: int = 3
 var current_target_collider: Node3D = null
+var socket_visual_pool: Array[MeshInstance3D] = []
+var max_socket_visuals: int = 24
+var snap_laser: MeshInstance3D = null
+var reason_label: Label3D = null
+var ghost_socket_visual_pool: Array[MeshInstance3D] = []
+var max_ghost_visuals: int = 8
 
 # Debug State
 var debug_ui: CanvasLayer = null
@@ -42,10 +47,10 @@ var debug_label: Label = null
 
 const LAYER_WORLD = 1
 const LAYER_ITEMS = 2
-const LAYER_STRUCTURES = 4 
+const LAYER_STRUCTURES = 8 
 const LAYER_GHOST = 512 # Layer 10
-const MASK_PLACEMENT = 5 # Layer 1 + Layer 4
-const MASK_INSPECTION = 4
+const MASK_PLACEMENT = 1 | 8 # Layer 1 + Layer 4
+const MASK_INSPECTION = 8
 
 # STATIC GHOST TRACKING
 static var global_ghost: Node3D = null
@@ -80,23 +85,19 @@ func _gather_unique_rids_recursive(node: Node, dict: Dictionary):
 	for child in node.get_children():
 		_gather_unique_rids_recursive(child, dict)
 
-func _get_snapped_pos(hit_pos: Vector3, snap: float) -> Vector3:
-	if snap < 0.6: # Fine-grained grid (0.25m / 0.5m)
-		var gx = round(hit_pos.x / snap) * snap
-		var gz = round(hit_pos.z / snap) * snap
-		var gy = round(hit_pos.y / 0.5) * 0.5
-		return Vector3(gx, gy, gz)
-		
-	# Standard Cell Snapping (4m/2m)
-	var half = snap / 2.0
-	var gx = round((hit_pos.x - half) / snap) * snap + half
-	var gz = round((hit_pos.z - half) / snap) * snap + half
-	var gy = round(hit_pos.y / 0.5) * 0.5
-	return Vector3(gx, gy, gz)
+func _get_snapped_pos(hit_pos: Vector3, snap: float, origin: Vector3 = Vector3.ZERO) -> Vector3:
+	# TERRITORY-RELATIVE GRID ALIGNMENT:
+	# We snap relative to an origin (the territory center) so the building grid 
+	# is consistent within a base, even if the base is not at a world-grid integer.
+	var local_hit = hit_pos - origin
+	var gx = round(local_hit.x / snap) * snap
+	var gz = round(local_hit.z / snap) * snap
+	var gy = round(local_hit.y / 0.5) * 0.5
+	return Vector3(gx + origin.x, gy + origin.y, gz + origin.z)
 
 func _is_wall(blueprint: BuildBlueprint = null, node: Node3D = null) -> bool:
 	if blueprint:
-		return blueprint.sub_category in ["Walls", "Doors/Windows"]
+		return blueprint.sub_category in ["Walls", "Doors/Windows", "Doors", "Windows"]
 	if node:
 		var n = node.name.to_lower()
 		return n.contains("wall") or n.contains("door") or n.contains("window") or n.contains("frame")
@@ -107,6 +108,30 @@ func _get_snap_size(blueprint: BuildBlueprint = null, node: Node3D = null) -> fl
 	if node and node.has_meta("snap_size"): return node.get_meta("snap_size")
 	if node and node.name.to_lower().contains("small"): return 2.0
 	return 4.0
+
+func _get_shape_half_extents(blueprint: BuildBlueprint, node: Node3D, rot: float = 0.0) -> Vector2:
+	var snap = _get_snap_size(blueprint, node)
+	var half = snap / 2.0
+	var ext = Vector2(half, half)
+	
+	if node and node.has_meta("blueprint_name"):
+		var bn = node.get_meta("blueprint_name").to_lower()
+		if "rect" in bn: ext.y = half / 2.0
+		elif "triangle" in bn: ext *= 0.8
+	elif blueprint:
+		var bn = blueprint.name.to_lower()
+		if "rect" in bn: ext.y = half / 2.0
+	
+	var is_rotated = int(round(abs(rot) / (PI/2.0))) % 2 == 1
+	if is_rotated: return Vector2(ext.y, ext.x)
+	return ext
+
+func _is_point_in_tri_2d(p: Vector2, a: Vector2, b: Vector2, c: Vector2) -> bool:
+	var as_x = p.x - a.x; var as_y = p.y - a.y
+	var s_ab = (b.x - a.x) * as_y - (b.y - a.y) * as_x > 0
+	if (c.x - a.x) * as_y - (c.y - a.y) * as_x > 0 == s_ab: return false
+	if (c.x - b.x) * (p.y - b.y) - (c.y - b.y) * (p.x - b.x) > 0 != s_ab: return false
+	return true
 
 func _ready():
 	# SINGLETON PROTECTION
@@ -148,6 +173,79 @@ func _setup_aim_marker():
 	aim_marker.material_override = mat
 	add_child(aim_marker)
 	aim_marker.visible = false
+	
+	# NEW: Socket Visual Pool
+	for i in range(max_socket_visuals):
+		var sm = MeshInstance3D.new()
+		var s_mesh = SphereMesh.new()
+		s_mesh.radius = 0.1
+		s_mesh.height = 0.2
+		sm.mesh = s_mesh
+		
+		var s_mat = StandardMaterial3D.new()
+		s_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		s_mat.no_depth_test = true
+		s_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		s_mat.albedo_color = Color(0, 0.5, 1, 0.4) # Soft blue
+		sm.material_override = s_mat
+		
+		add_child(sm)
+		sm.visible = false
+		socket_visual_pool.append(sm)
+		
+		# Outward Pointer (child of node)
+		var pointer = MeshInstance3D.new()
+		var p_mesh = CylinderMesh.new()
+		p_mesh.top_radius = 0.0
+		p_mesh.bottom_radius = 0.05
+		p_mesh.height = 0.3
+		pointer.mesh = p_mesh
+		pointer.rotation.x = PI/2.0
+		pointer.position.z = -0.2
+		pointer.material_override = s_mat
+		sm.add_child(pointer)
+
+	# GHOST SOCKET VISUALS
+	for i in range(max_ghost_visuals):
+		var gm = MeshInstance3D.new()
+		var g_mesh = SphereMesh.new()
+		g_mesh.radius = 0.06
+		g_mesh.height = 0.12
+		gm.mesh = g_mesh
+		var g_mat = StandardMaterial3D.new()
+		g_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		g_mat.no_depth_test = true
+		g_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		g_mat.albedo_color = Color(1, 0.8, 0, 0.6) # Gold/Amber for ghost nodes
+		gm.material_override = g_mat
+		add_child(gm)
+		gm.visible = false
+		ghost_socket_visual_pool.append(gm)
+	
+	# NEW: Snapping Laser
+	snap_laser = MeshInstance3D.new()
+	var l_mesh = BoxMesh.new()
+	l_mesh.size = Vector3(0.02, 0.02, 1.0)
+	snap_laser.mesh = l_mesh
+	var l_mat = StandardMaterial3D.new()
+	l_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	l_mat.albedo_color = Color(0, 1, 1, 0.8) # Bright Cyan
+	l_mat.no_depth_test = true
+	l_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	snap_laser.material_override = l_mat
+	add_child(snap_laser)
+	snap_laser.visible = false
+	
+	# NEW: Reason Tooltip
+	reason_label = Label3D.new()
+	reason_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	reason_label.no_depth_test = true
+	reason_label.render_priority = 10
+	reason_label.text = ""
+	reason_label.font_size = 48
+	reason_label.outline_size = 12
+	add_child(reason_label)
+	reason_label.visible = false
 
 func select_blueprint(blueprint: BuildBlueprint):
 	if not is_active: return
@@ -155,6 +253,9 @@ func select_blueprint(blueprint: BuildBlueprint):
 	last_snapped_socket = null 
 	ghost_spawn_scale = 0.0
 	last_calculated_snap_pos = Vector3.ZERO # RESET SNAP POSITION
+	last_calculated_final_rot = 0.0
+	manual_rotation_offset = 0.0 # RESET MANUAL ROTATION
+	last_snapped_socket = null
 	if blueprint:
 		_update_territory_visuals()
 		if blueprint.scene:
@@ -173,30 +274,29 @@ func _process(delta):
 	var is_initial_setup = is_instance_valid(player_ref) and not player_ref.has_territory
 	if current_blueprint or is_initial_setup:
 		_update_ghost_juice(delta)
-		# Position update is handled in _physics_process for raycast accuracy
 		if is_instance_valid(global_ghost) and smoothed_pos != Vector3.ZERO:
 			global_ghost.global_position = smoothed_pos
-			global_ghost.global_rotation.y = smoothed_rot
-	else:
-		_process_inspection_mode(delta)
+			global_ghost.global_rotation = Vector3(0, smoothed_rot, 0)
+	
+	# Pulse highlights in ALL modes
+	if is_instance_valid(hovered_structure):
+		ghost_pulse_timer += delta * 4.0
+		var pulse = 1.0 + (sin(ghost_pulse_timer) * 0.5)
+		_set_highlight_pulse_energy(hovered_structure, pulse * 3.0)
 
 func _physics_process(_delta):
 	if not is_active: return
 	var is_initial_setup = is_instance_valid(player_ref) and not player_ref.has_territory
 	if current_blueprint or is_initial_setup:
 		_update_ghost_position(is_initial_setup)
+	else:
+		if is_instance_valid(aim_marker): aim_marker.visible = false
+		if is_instance_valid(debug_ui): debug_ui.visible = false
+		if is_instance_valid(global_ghost): global_ghost.visible = false
+		_update_structure_highlighter()
 
-func _process_inspection_mode(delta: float):
-	if is_instance_valid(aim_marker): aim_marker.visible = false
-	if is_instance_valid(debug_ui): debug_ui.visible = false
-	if is_instance_valid(global_ghost):
-		global_ghost.visible = false
-	_update_structure_highlighter()
-	
-	if is_instance_valid(hovered_structure):
-		ghost_pulse_timer += delta * 4.0
-		var pulse = 1.0 + (sin(ghost_pulse_timer) * 0.5)
-		_set_highlight_pulse_energy(hovered_structure, pulse * 3.0)
+func _input(event: InputEvent):
+	handle_input(event)
 
 func _set_highlight_pulse_energy(node: Node, energy: float):
 	if node is MeshInstance3D:
@@ -208,6 +308,7 @@ func _set_highlight_pulse_energy(node: Node, energy: float):
 func activate(player):
 	_clear_all_ghosts_internal()
 	player_ref = player
+	player_ref.collision_mask |= LAYER_STRUCTURES # Ensure player can stand on structures
 	is_active = true
 	last_snapped_socket = null
 	ghost_spawn_scale = 0.0
@@ -234,8 +335,11 @@ func deactivate():
 	is_active = false
 	_clear_all_ghosts()
 	_clear_hover()
+	_hide_all_socket_visuals()
 	if is_instance_valid(aim_marker): aim_marker.visible = false
 	if is_instance_valid(debug_ui): debug_ui.visible = false
+	if is_instance_valid(snap_laser): snap_laser.visible = false
+	if is_instance_valid(reason_label): reason_label.visible = false
 
 func _clear_hover():
 	if is_instance_valid(hovered_structure):
@@ -330,6 +434,11 @@ func _apply_ghost_settings(node: Node):
 		node.material_override = ghost_mat
 		if node.name == "AreaIndicator" and node is MeshInstance3D:
 			node.transparency = 0.5 # Extra transparency for the big territory box
+	
+	# STRIP GROUPS: Ghost children must not be searched for as real sockets or structures
+	if node.is_in_group("socket"): node.remove_from_group("socket")
+	if node.is_in_group("structure") and node != global_ghost: node.remove_from_group("structure")
+	
 	for child in node.get_children():
 		_apply_ghost_settings(child)
 
@@ -353,36 +462,91 @@ func _update_ghost_juice(delta: float):
 	ghost_current_color = ghost_current_color.lerp(ghost_target_color, delta * 8.0)
 	_set_node_color(global_ghost, ghost_current_color)
 
+func _is_complementary(n1: String, n2: String) -> bool:
+	var s1 = n1.to_lower()
+	var s2 = n2.to_lower()
+	
+	var is_curve1 = ("curve" in s1 and not "inward" in s1)
+	var is_inward1 = ("inward" in s1)
+	var is_curve2 = ("curve" in s2 and not "inward" in s2)
+	var is_inward2 = ("inward" in s2)
+	
+	if (is_curve1 and is_inward2) or (is_inward1 and is_curve2):
+		return true
+		
+	# DOOR/WINDOW COMPLEMENTS: Allow a door to fit inside its frame
+	if ("door" in s1 and "door" in s2) or ("window" in s1 and "window" in s2):
+		var is_frame1 = "frame" in s1 or "wall door" in s1
+		var is_frame2 = "frame" in s2 or "wall door" in s2
+		return is_frame1 != is_frame2
+		
+	return false
+
 func _is_spot_occupied(p: Vector3, blueprint: BuildBlueprint = null, rot: float = 0.0) -> bool:
-	var snap = _get_snap_size(blueprint)
+	if not blueprint or not global_ghost: return false
+	var occ_node = global_ghost.get_node_or_null("Occupancy")
+	var b_name = blueprint.name
 	var is_edge = _is_wall(blueprint)
+	
+	# 1. SETUP GHOST SHAPE
+	var g_shape = "box"; var g_ext = _get_shape_half_extents(blueprint, null, rot)
+	if occ_node:
+		g_shape = occ_node.get_meta("shape") if occ_node.has_meta("shape") else "box"
+		if occ_node.has_meta("size"):
+			var sz = occ_node.get_meta("size"); g_ext = Vector2(sz.x/2.0, sz.z/2.0)
+			if int(round(abs(rot) / (PI/2.0))) % 2 == 1: g_ext = Vector2(g_ext.y, g_ext.x)
+
+	# 2. CHECK AGAINST PLACED ITEMS
 	for item in get_tree().get_nodes_in_group("structure"):
-		if not is_instance_valid(item) or item.is_in_group("territory"): continue
-		var dist = item.global_position.distance_to(p)
+		if not is_instance_valid(item) or item == global_ghost or item.is_in_group("territory"): continue
+		var item_name = item.get_meta("blueprint_name") if item.has_meta("blueprint_name") else item.name
 		var item_is_edge = _is_wall(null, item)
+		var dist_y = abs(p.y - item.global_position.y)
+		
 		if is_edge:
-			if item_is_edge and dist < 0.2:
-				var rot_diff = abs(item.global_rotation.y - rot)
-				while rot_diff > PI: rot_diff -= PI * 2.0
+			if item_is_edge and p.distance_to(item.global_position) < 0.2:
+				if _is_complementary(b_name, item_name):
+					continue 
+				var rot_diff = abs(item.global_rotation.y - rot); while rot_diff > PI: rot_diff -= PI * 2.0
 				if abs(rot_diff) < 0.1 or abs(abs(rot_diff) - PI) < 0.1: return true
 		else:
-			if not item_is_edge and abs(p.y - item.global_position.y) < 0.6:
-				var dx = abs(p.x - item.global_position.x)
-				var dz = abs(p.z - item.global_position.z)
-				var limit = (snap + _get_snap_size(null, item)) / 2.0 - 0.5
-				if dx < limit and dz < limit:
-					# COMPLEMENTARY SHAPE LOGIC (Once Human Style)
-					# Allow Curve and Inward-Curve to coexist in the same spot
-					var n1 = blueprint.name.to_lower() if blueprint else ""
-					var n2 = item.name.to_lower()
-					var is_curve1 = "curve" in n1 and not "inward" in n1
-					var is_inward1 = "inward" in n1
-					var is_curve2 = "curve" in n2 and not "inward" in n2
-					var is_inward2 = "inward" in n2
+			if not item_is_edge and dist_y < 0.25:
+				var dx = abs(p.x - item.global_position.x); var dz = abs(p.z - item.global_position.z)
+				var ext2 = _get_shape_half_extents(null, item, item.global_rotation.y)
+				
+				# PRE-FILTER: AABB Overlap (with 0.2m buffer)
+				if dx < (g_ext.x + ext2.x - 0.2) and dz < (g_ext.y + ext2.y - 0.2):
+					if _is_complementary(b_name, item_name):
+						var rot_diff = abs(item.global_rotation.y - rot); while rot_diff > PI: rot_diff -= PI * 2.0
+						if abs(rot_diff) < 1.2: continue 
 					
-					if (is_curve1 and is_inward2) or (is_inward1 and is_curve2):
-						continue # They fit together!
+					# TRIANGLE SPECIAL (Point-in-Triangle check)
+					var item_occ = item.get_node_or_null("Occupancy")
+					if item_occ and item_occ.has_meta("shape") and item_occ.get_meta("shape") == "triangle":
+						var pts = item_occ.get_meta("points")
+						var localized_p = (p - item.global_position).rotated(Vector3.UP, -item.global_rotation.y)
+						if _is_point_in_tri_2d(Vector2(localized_p.x, localized_p.z), Vector2(pts[0].x, pts[0].z), Vector2(pts[1].x, pts[1].z), Vector2(pts[2].x, pts[2].z)):
+							return true
+						continue 
+					
+					# CURVE SPECIAL (Circle-Radius check)
+					if item_occ and item_occ.has_meta("shape"):
+						var shape_type = item_occ.get_meta("shape")
+						var localized_p = (p - item.global_position).rotated(Vector3.UP, -item.global_rotation.y)
+						var radius = _get_snap_size(null, item)
 						
+						# Distance from the inner-pivot corner (The center of the circle)
+						var dist_to_corner = Vector2(localized_p.x + radius/2.0, localized_p.z + radius/2.0).length()
+						
+						if shape_type == "curve":
+							# Only occupied if INSIDE the circle
+							if dist_to_corner < (radius - 0.2): return true
+						elif shape_type == "inward_curve":
+							# Only occupied if OUTSIDE the circle (The 'filler' part)
+							if dist_to_corner > radius: return true
+						
+						if shape_type in ["curve", "inward_curve"]: continue # Handled by circle logic
+					
 					return true
 	return false
 
@@ -402,21 +566,24 @@ func _check_structural_support(pos: Vector3, blueprint: BuildBlueprint) -> bool:
 			check_points.append(pos + Vector3(-snap, 0.1, -snap))
 			
 		for p in check_points:
-			# Check for overlapping structures (Occupancy)
-			var s_hit = _perform_raycast(p + Vector3(0, 1.5, 0), p + Vector3(0, 0.6, 0), LAYER_STRUCTURES)
-			if not s_hit.is_empty() and not s_hit.collider.name.to_lower().contains("territory"): return false 
-			
-			# Check for ground or snap support (Support)
+			# 1. COMPLEMENTARY SUPPORT (Check for partner at same spot)
+			for item in get_tree().get_nodes_in_group("structure"):
+				if item.global_position.distance_to(pos) < 0.1:
+					if _is_complementary(blueprint.name, item.name): 
+						return true # Supported by partner!
+
+			# 2. GROUND/STRUCTURE SUPPORT
 			var hit = _perform_raycast(p + Vector3(0, 0.5, 0), p + Vector3(0, -1.2, 0), LAYER_WORLD | LAYER_STRUCTURES)
 			if not hit.is_empty(): return true 
 		return false
-	if sub == "Walls" or sub == "Doors/Windows":
+	if sub in ["walls", "doors/windows", "doors", "windows"]:
 		for item in get_tree().get_nodes_in_group("structure"):
+			if item == global_ghost: continue # Ignore self
 			var d_v = pos.y - item.global_position.y
 			var d_xz = Vector2(pos.x, pos.z).distance_to(Vector2(item.global_position.x, item.global_position.z))
 			if d_v >= 0.2 and d_v <= 4.0 and d_xz < 2.5: return true
 		return false
-	if sub == "Floor/Roof":
+	if sub in ["floor/roof", "roof", "floor"]:
 		var h_ground = _perform_raycast(pos + Vector3(0, 0.5, 0), pos + Vector3(0, -0.3, 0), LAYER_WORLD)
 		if not h_ground.is_empty(): return false 
 		for item in get_tree().get_nodes_in_group("structure"):
@@ -451,25 +618,11 @@ func _update_ghost_position(is_initial_setup: bool = false):
 	var is_within_any = false
 	var delta = get_process_delta_time()
 	
-	var result = _perform_raycast(origin, end, MASK_PLACEMENT)
-	if result:
-		var raw_hit = result.position
+	var result = _perform_raycast(origin, end, MASK_PLACEMENT, [player_ref])
+	if not result.is_empty():
+		var hit_pos = result.position
+		var hit_norm = result.normal
 		current_target_collider = result.collider
-		
-		# 0. LOW-PASS FILTER (Input Smoothing)
-		hit_pos_history.append(raw_hit)
-		if hit_pos_history.size() > smoothing_frames: hit_pos_history.remove_at(0)
-		
-		var hit_pos = Vector3.ZERO
-		for p in hit_pos_history: hit_pos += p
-		hit_pos /= hit_pos_history.size()
-
-		# Snap hit_pos to slightly filter jitter
-		hit_pos = Vector3(round(hit_pos.x * 20)/20.0, hit_pos.y, round(hit_pos.z * 20)/20.0)
-		
-		if is_instance_valid(aim_marker): 
-			aim_marker.visible = true
-			aim_marker.global_position = hit_pos
 		
 		# Snapping Config
 		var snap = _get_snap_size(current_blueprint)
@@ -478,9 +631,21 @@ func _update_ghost_position(is_initial_setup: bool = false):
 		if not is_within_any and not (is_initial_setup and not current_blueprint):
 			effective_snap = 1.0 
 			
-		var target_grid = _get_snapped_pos(hit_pos, effective_snap)
+		# 1. TERRITORY DETECTION & RELATIVE SNAP
+		var active_territory = null
+		for t in territories:
+			if t.is_within_territory(hit_pos):
+				active_territory = t
+				is_within_any = true
+				break
 		
-		# Wall logic
+		var origin_for_snap = Vector3.ZERO
+		if active_territory:
+			origin_for_snap = active_territory.global_position
+
+		var target_grid = _get_snapped_pos(hit_pos, effective_snap, origin_for_snap)
+		
+		# Wall/Door orientation logic
 		var cam_fwd = -camera.global_transform.basis.z
 		cam_fwd.y = 0
 		if cam_fwd.length() < 0.2: cam_fwd = -camera.global_transform.basis.y; cam_fwd.y = 0
@@ -497,8 +662,8 @@ func _update_ghost_position(is_initial_setup: bool = false):
 			match current_blueprint.sub_category:
 				"Foundation": type_to_find = "foundation"
 				"Walls": type_to_find = "wall"
-				"Doors/Windows": type_to_find = "wall" if "frame" in current_blueprint.name.to_lower() else "door"
-				"Floor/Roof": type_to_find = "roof"
+				"Doors/Windows", "Doors", "Windows": type_to_find = "wall" if "frame" in current_blueprint.name.to_lower() else "door"
+				"Floor/Roof", "Roof", "Floor": type_to_find = "roof"
 		
 		var candidate_pos = target_grid
 		var candidate_rot = target_rotation
@@ -507,26 +672,103 @@ func _update_ghost_position(is_initial_setup: bool = false):
 		for t in territories:
 			if t.is_within_territory(candidate_pos): is_within_any = true; break
 		
-		if type_to_find != "" and is_instance_valid(current_target_collider):
-			# ONLY check the foundation/wall we are looking at!
-			var socket = _get_best_socket_on_target(hit_pos, type_to_find, current_target_collider)
+		var socket = null
+		if type_to_find != "":
+			socket = _get_best_socket_in_range(hit_pos, type_to_find)
 			if socket:
-				candidate_pos = socket.global_position
-				candidate_rot = socket.global_rotation.y
-				is_socketed = true
+				# 1. GEOMETRIC FACE-ALIGNMENT
+				# We calculate the exact rotation needed for EACH ghost socket 
+				# to face the target socket perfectly (Normal-to-Normal).
+				var target_fwd = -socket.global_transform.basis.z.normalized()
+				var ghost_sockets = global_ghost.get_node_or_null("Sockets")
+				
+				var best_candidate_pos = Vector3.ZERO
+				var best_candidate_rot = 0.0
+				var min_dist_to_aim = 9999.0
+				
+				if ghost_sockets:
+					for gs in global_ghost.get_node("Sockets").get_children():
+						if not gs is Marker3D or not gs.has_meta("type") or gs.get_meta("type") != type_to_find: continue
+						
+						var gs_local_fwd = -gs.transform.basis.z.normalized()
+						var angle_to_target = atan2(target_fwd.x, target_fwd.z) 
+						var angle_of_gs = atan2(gs_local_fwd.x, gs_local_fwd.z)
+						var needed_rot = angle_to_target - angle_of_gs + PI
+						
+						# Apply Manual Offset HERE so we can pivot the ghost while snapped
+						var final_iter_rot = needed_rot + manual_rotation_offset
+						var rot_basis = Basis(Vector3.UP, final_iter_rot)
+						var ghost_center = socket.global_position - (rot_basis * gs.transform.origin)
+						
+						var score = ghost_center.distance_to(hit_pos)
+						if score < min_dist_to_aim:
+							min_dist_to_aim = score
+							best_candidate_pos = ghost_center
+							best_candidate_rot = final_iter_rot
+							is_socketed = true
+				
+				if is_socketed:
+					candidate_pos = best_candidate_pos
+					candidate_rot = best_candidate_rot
+		
+		# 3. COMPLEMENTARY CENTER MAGNET (The Puzzle Piece)
+		if not is_socketed and current_blueprint and "curve" in current_blueprint.name.to_lower():
+			for item in get_tree().get_nodes_in_group("structure"):
+				if item == global_ghost: continue # Ignore self
+				if _is_complementary(current_blueprint.name, item.name):
+					var dist_to_center = item.global_position.distance_to(hit_pos)
+					# Tighter range (0.4 * snap = 1.6m for 4m) to prevent 'jumping over everywhere'
+					var center_snap_range = effective_snap * 0.4
+					
+					if dist_to_center < center_snap_range:
+						candidate_pos = item.global_position
+						candidate_rot = item.global_rotation.y
+						is_socketed = true; socket = null # Mark as a magnet snap
+						break
 
-		# 3. IRON-GRIP HYSTERESIS
+		# 4. HIGHLIGHT SNAP TARGET
+		var new_hover = null
+
+		if is_socketed and is_instance_valid(socket):
+			var s_owner = socket.get_parent()
+			while s_owner and not s_owner.is_in_group("structure"): s_owner = s_owner.get_parent()
+			new_hover = s_owner
+		elif is_instance_valid(current_target_collider):
+			var temp = current_target_collider
+			while temp:
+				if temp.is_in_group("structure"): new_hover = temp; break
+				temp = temp.get_parent()
+		
+		if new_hover != hovered_structure:
+			_clear_hover()
+			hovered_structure = new_hover
+			if is_instance_valid(hovered_structure):
+				_set_structure_highlight(hovered_structure, true)
+
+		# 4. IRON-GRIP HYSTERESIS (Sticky Sockets)
+		var should_jump = false
 		if last_calculated_final_pos == Vector3.ZERO:
+			should_jump = true
+		elif candidate_pos != last_calculated_final_pos or abs(candidate_rot - last_calculated_final_rot) > 0.01:
+			var grip = effective_snap * 0.2
+			if last_snapped_socket != null: 
+				grip = 0.4 
+			
+			# NEW: Magnet Hysteresis (Increased to 1.2m to stay 'locked' longer)
+			if is_socketed and socket == null: grip = 1.2 
+			
+			# Jump if position changed enough OR if rotation changed at all
+			if hit_pos.distance_to(last_calculated_final_pos) > grip or abs(candidate_rot - last_calculated_final_rot) > 0.01:
+				should_jump = true
+				
+		if should_jump:
 			last_calculated_final_pos = candidate_pos
-		elif candidate_pos != last_calculated_final_pos:
-			var grip = effective_snap * 0.4
-			if last_socket_id != 0: grip = 1.8 # Extreme grip for sockets
-			if hit_pos.distance_to(last_calculated_final_pos) > grip:
-				last_calculated_final_pos = candidate_pos
-				last_socket_id = 1 if is_socketed else 0
+			last_calculated_final_rot = candidate_rot
+			last_snapped_socket = socket if is_socketed else null
+			last_socket_id = 1 if is_socketed else 0
 				
 		var final_pos = last_calculated_final_pos
-		target_rotation = candidate_rot
+		target_rotation = last_calculated_final_rot
 		# 4. SMOOTH INTERPOLATION
 		# This makes the ghost transition between snaps smoothly rather than popping
 		if smoothed_pos == Vector3.ZERO: 
@@ -539,7 +781,11 @@ func _update_ghost_position(is_initial_setup: bool = false):
 		
 		var is_occ = _is_spot_occupied(final_pos, current_blueprint, target_rotation)
 		var has_sup = _check_structural_support(final_pos, current_blueprint)
-		var world_col = _is_colliding_with_world(final_pos, global_ghost)
+		
+		# WORLD COLLISION: Relaxed for socketed foundations to allow building into hills
+		var world_col = false
+		if not is_socketed or current_blueprint.sub_category != "Foundation":
+			world_col = _is_colliding_with_world(final_pos, global_ghost)
 		
 		# FINAL CAN_PLACE CALCULATION
 		var last_can_place = can_place
@@ -576,38 +822,157 @@ func _update_ghost_position(is_initial_setup: bool = false):
 
 		_update_ghost_color(can_place)
 		global_ghost.global_position = smoothed_pos
-		global_ghost.global_rotation.y = smoothed_rot
+		global_ghost.global_rotation = Vector3(0, smoothed_rot, 0)
 		global_ghost.visible = true
+		
+		# 5. VISUAL SIGNALS (Lasers & Tooltips)
+		if is_socketed and is_instance_valid(last_snapped_socket):
+			var start = hit_pos
+			var end_pos = last_snapped_socket.global_position
+			var dist = start.distance_to(end_pos)
+			if dist > 0.1:
+				snap_laser.visible = true
+				snap_laser.global_position = start.lerp(end_pos, 0.5)
+				snap_laser.basis = Basis.looking_at(end_pos - start, Vector3.UP)
+				snap_laser.scale.z = dist
+			else: snap_laser.visible = false
+		else: snap_laser.visible = false
+		
+		# Reason Tooltip
+		if is_instance_valid(reason_label):
+			reason_label.global_position = hit_pos + Vector3(0, 0.5, 0)
+			reason_label.visible = true
+			var rot_deg = int(rad_to_deg(manual_rotation_offset)) % 360
+			if can_place:
+				reason_label.text = "[ READY ]"
+				if rot_deg != 0: reason_label.text += "\nRot: %d°" % rot_deg
+				reason_label.modulate = Color(0, 1, 0.5, 0.9) # Glowy green
+			else:
+				if is_occ: reason_label.text = "! OCCUPIED !"
+				elif not has_sup: reason_label.text = "! NO SUPPORT !"
+				elif world_col: reason_label.text = "! CLIPPING !"
+				elif not is_within_any and not is_initial_setup: reason_label.text = "! OUTSIDE TERRITORY !"
+				elif not socket_valid: reason_label.text = "! SNAP TO EDGE !"
+				else: reason_label.text = "! BLOCKED !"
+				reason_label.modulate = Color(1, 0.2, 0.2, 0.9) # Warning red
+
+		# VISUALIZE NODES (Sockets)
+		_update_socket_visuals(hit_pos, type_to_find, last_snapped_socket)
 	else:
+		_clear_hover()
+		_hide_all_socket_visuals()
 		if is_instance_valid(global_ghost): global_ghost.visible = false
 		if is_instance_valid(aim_marker): aim_marker.visible = false
 		if is_instance_valid(debug_ui): debug_ui.visible = false
+		if is_instance_valid(snap_laser): snap_laser.visible = false
+		if is_instance_valid(reason_label): reason_label.visible = false
 
-func _get_best_socket_on_target(at_pos: Vector3, type: String, target: Node3D) -> Marker3D:
-	if not is_instance_valid(target): return null
-	# Get top level structure from collision
-	var structure = target
-	while structure and not structure.is_in_group("structure"):
-		structure = structure.get_parent()
+func _update_socket_visuals(at_pos: Vector3, type: String, active_socket: Marker3D = null):
+	_hide_all_socket_visuals()
+	if type == "": return
 	
-	if not is_instance_valid(structure): return null
+	# 1. WORLD SOCKETS
+	var all_sockets = get_tree().get_nodes_in_group("socket")
+	var visual_idx = 0
+	for s in all_sockets:
+		if visual_idx >= max_socket_visuals: break
+		if not s is Marker3D: continue
+		if not s.has_meta("type") or s.get_meta("type") != type: continue
+		var p = s.get_parent()
+		while p and not p.is_in_group("structure"): p = p.get_parent()
+		if not p: continue
+		
+		var d = s.global_position.distance_to(at_pos)
+		if d < 10.0:
+			var visual = socket_visual_pool[visual_idx]
+			visual.global_position = s.global_position
+			visual.global_rotation = s.global_rotation
+			visual.visible = true
+			if s == active_socket:
+				visual.scale = Vector3.ONE * 1.5
+				visual.material_override.albedo_color = Color(0, 1, 1, 0.9)
+			else:
+				visual.scale = Vector3.ONE
+				visual.material_override.albedo_color = Color(0, 0.4, 1, 0.4)
+			visual_idx += 1
+			
+	# 2. GHOST SOCKETS
+	if is_instance_valid(global_ghost):
+		var g_sockets = global_ghost.get_node_or_null("Sockets")
+		if g_sockets:
+			var g_idx = 0
+			for gs in g_sockets.get_children():
+				if g_idx >= max_ghost_visuals: break
+				if not gs is Marker3D or not gs.has_meta("type") or gs.get_meta("type") != type: continue
+				
+				var visual = ghost_socket_visual_pool[g_idx]
+				visual.global_position = gs.global_position
+				visual.visible = true
+				g_idx += 1
+
+func _hide_all_socket_visuals():
+	for v in socket_visual_pool: v.visible = false
+	for v in ghost_socket_visual_pool: v.visible = false
+
+func _get_best_socket_in_range(at_pos: Vector3, type: String) -> Marker3D:
+	var camera = get_viewport().get_camera_3d()
+	if not camera: return null
 	
-	var closest = null
-	var min_dist = 3.0 # Strict search radius on target
-	# Only search grandchildren of the structure (where sockets live)
-	for child in structure.get_children():
-		if child.name == "Sockets":
-			for s in child.get_children():
-				if s is Marker3D and s.has_meta("type") and s.get_meta("type") == type:
-					var d = s.global_position.distance_to(at_pos)
-					if d < min_dist: min_dist = d; closest = s
-	return closest
+	var best_s = null
+	var min_score = 9999.0
+	var all_sockets = get_tree().get_nodes_in_group("socket")
+	
+	# Priority 1: Sockets on the structure we are actually looking at
+	var target_struct = null
+	if is_instance_valid(current_target_collider):
+		var p = current_target_collider
+		while p and not p.is_in_group("structure"): p = p.get_parent()
+		target_struct = p
+
+	for s in all_sockets:
+		if not s is Marker3D or not s.has_meta("type") or s.get_meta("type") != type: continue
+		
+		# Proximity to the virtual "hit" position
+		var dist = s.global_position.distance_to(at_pos)
+		if dist > 2.2: continue # More forgiving radius for doors in the center of 4m walls
+		
+		# Verify it belongs to a structure
+		var p = s.get_parent()
+		while p and not p.is_in_group("structure"): p = p.get_parent()
+		if not p or p == global_ghost: continue # ABSOLUTE: Never snap to the ghost itself
+		
+		# SCORING SYSTEM
+		var score = dist * 4.0 # Extreme preference for closeness
+		# Major bonus for sockets on the structure the player is aim-highlighting
+		if p == target_struct: score -= 3.0
+		
+		# Directional Penalty: If we are looking at the "back" of the socket, ignore it
+		var cam_to_socket = (s.global_position - camera.global_position).normalized()
+		var s_fwd = -s.global_transform.basis.z.normalized()
+		if cam_to_socket.dot(s_fwd) > 0.7: continue # Slightly more relaxed back-face check
+		
+		# Line of Sight: Can we actually see this node?
+		var occl = _perform_raycast(camera.global_position, s.global_position, LAYER_WORLD | LAYER_STRUCTURES, [player_ref, global_ghost])
+		if not occl.is_empty():
+			if occl.collider != p: score += 10.0 # Occluded by something else!
+
+		if score < min_score:
+			min_score = score
+			best_s = s
+				
+	return best_s
 
 func handle_input(event: InputEvent):
 	if not is_active: return
 	var is_initial_setup = is_instance_valid(player_ref) and not player_ref.has_territory
 	if current_blueprint or is_initial_setup:
-		if event.is_action_pressed("build_rotate"): manual_rotation_offset += PI/2.0
+		if event.is_action_pressed("build_rotate"): manual_rotation_offset += PI/4.0
+		
+		# MANUAL WHEEL CHECK if actions are not set up
+		if event is InputEventMouseButton and event.pressed:
+			if event.button_index == MOUSE_BUTTON_WHEEL_UP: manual_rotation_offset += PI/4.0
+			elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN: manual_rotation_offset -= PI/4.0
+				
 		if event.is_action_pressed("player_interact") or event.is_action_pressed("build_place"): _place_object()
 		if event.is_action_pressed("build_menu") and not is_initial_setup: 
 			select_blueprint(null)
@@ -712,6 +1077,7 @@ func _place_object():
 		if current_blueprint:
 			s_size = current_blueprint.snap_size
 			new_obj.set_meta("blueprint_path", current_blueprint.resource_path)
+			new_obj.set_meta("blueprint_name", current_blueprint.name)
 		new_obj.set_meta("snap_size", s_size)
 		
 		_play_placement_animation(new_obj)
@@ -719,12 +1085,12 @@ func _place_object():
 
 func _setup_placed_physics(node: Node):
 	if node is CollisionObject3D:
-		node.collision_layer = 5 # Layer 1 (World) | Layer 4 (Structure)
+		node.collision_layer = LAYER_STRUCTURES # Layer 4 only (NOT Layer 1)
 		node.collision_mask = 1  # Collide with world
 	
 	if node is CSGPrimitive3D or node is CSGCombiner3D:
 		node.use_collision = true
-		node.collision_layer = 5
+		node.collision_layer = LAYER_STRUCTURES
 		node.collision_mask = 1
 		
 	for child in node.get_children():

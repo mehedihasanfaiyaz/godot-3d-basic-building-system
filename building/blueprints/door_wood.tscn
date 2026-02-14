@@ -1,18 +1,52 @@
-[gd_scene load_steps=3 format=3 uid="uid://door_wood"]
+[gd_scene load_steps=7 format=3 uid="uid://dtnlk3qeenebu"]
 
-[sub_resource type="BoxShape3D" id="BoxShape3D_1"]
+[ext_resource type="Script" uid="uid://mr2bnm6shdcl" path="res://building/door.gd" id="1_script"]
+[ext_resource type="Material" uid="uid://cxnyv0yrwb3tf" path="res://building/materials/wood.tres" id="2_wood"]
+[ext_resource type="Script" uid="uid://cm4hn6xnrau0b" path="res://building/building_socket.gd" id="3_socket"]
+
+[sub_resource type="BoxMesh" id="BoxMesh_Panel"]
+size = Vector3(1.2, 2.2, 0.08)
+
+[sub_resource type="BoxMesh" id="BoxMesh_Trim"]
+size = Vector3(0.08, 0.4, 0.12)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_door"]
 size = Vector3(1.2, 2.2, 0.1)
 
-[sub_resource type="BoxMesh" id="BoxMesh_1"]
-size = Vector3(1.2, 2.2, 0.1)
+[node name="DoorWood" type="StaticBody3D" groups=["structure"]]
+collision_layer = 4
+collision_mask = 0
+script = ExtResource("1_script")
+metadata/blueprint_name = "Wooden Door"
 
-[node name="DoorWood" type="StaticBody3D"]
-collision_layer = 3
+[node name="Pivot" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.6, 0, 0)
+
+[node name="Panel" type="MeshInstance3D" parent="Pivot"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.6, 1.1, 0)
+mesh = SubResource("BoxMesh_Panel")
+surface_material_override/0 = ExtResource("2_wood")
+
+[node name="Handle_Front" type="MeshInstance3D" parent="Pivot"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.05, 1.1, 0.06)
+mesh = SubResource("BoxMesh_Trim")
+surface_material_override/0 = ExtResource("2_wood")
+
+[node name="Handle_Back" type="MeshInstance3D" parent="Pivot"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.05, 1.1, -0.06)
+mesh = SubResource("BoxMesh_Trim")
+surface_material_override/0 = ExtResource("2_wood")
+
+[node name="Occupancy" type="Node3D" parent="."]
+metadata/shape = "box"
+metadata/size = Vector3(1.1, 2.1, 0.05)
+
+[node name="Sockets" type="Node3D" parent="."]
+
+[node name="Socket_Base" type="Marker3D" parent="Sockets" groups=["socket"]]
+script = ExtResource("3_socket")
+metadata/type = "door"
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.1, 0)
-shape = SubResource("BoxShape3D_1")
-
-[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.1, 0)
-mesh = SubResource("BoxMesh_1")
+shape = SubResource("BoxShape3D_door")

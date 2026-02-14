@@ -1,47 +1,44 @@
 shader_type spatial;
+render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_burley, specular_schlick_ggx;
 
 uniform vec4 grid_color : source_color = vec4(0.0, 0.8, 1.0, 0.2);
 uniform float grid_size = 4.0;
-uniform float line_width = 0.1;
+uniform float minor_grid_size = 2.0;
+uniform float line_width = 0.04;
+uniform float territory_size = 40.0;
 
 varying vec3 world_pos;
 
 void vertex() {
-    world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 }
 
 void fragment() {
-    float line_4 = 4.0;
-    float line_1 = 1.0;
-    float line_05 = 0.5;
-    float line_025 = 0.25;
-    
-    // World anchored coordinates (horizontal plane)
-    vec2 pos = world_pos.xz;
-    
-    // Major Grid (4m) - Anchored to 2.0 offset to match factory centers
-    vec2 g4 = fract((pos - 2.0) / line_4);
-    float d4 = min(min(g4.x, 1.0 - g4.x), min(g4.y, 1.0 - g4.y)) * line_4;
-    float m4 = 1.0 - smoothstep(0.0, line_width, d4);
-    
-    // Mid Grid (1m)
-    vec2 g1 = fract(pos / line_1);
-    float d1 = min(min(g1.x, 1.0 - g1.x), min(g1.y, 1.0 - g1.y)) * line_1;
-    float m1 = 1.0 - smoothstep(0.0, line_width * 0.6, d1);
-    
-    // Minor Grid (0.5m)
-    vec2 g05 = fract(pos / line_05);
-    float d05 = min(min(g05.x, 1.0 - g05.x), min(g05.y, 1.0 - g05.y)) * line_05;
-    float m05 = 1.0 - smoothstep(0.0, line_width * 0.4, d05);
-    
-    // Fine Grid (0.25m)
-    vec2 g025 = fract(pos / line_025);
-    float d025 = min(min(g025.x, 1.0 - g025.x), min(g025.y, 1.0 - g025.y)) * line_025;
-    float m025 = 1.0 - smoothstep(0.0, line_width * 0.2, d025);
-    
-    // Blend layers with increasing transparency
-    float a = (m4 * grid_color.a) + (m1 * grid_color.a * 0.4) + (m05 * grid_color.a * 0.2) + (m025 * grid_color.a * 0.1);
-    
-    ALBEDO = grid_color.rgb;
-    ALPHA = clamp(a, 0.0, 1.0);
+	// Local coordinates relative to the territory center
+	vec3 local_pos = world_pos - (MODEL_MATRIX * vec4(0, 0, 0, 1)).xyz;
+	
+	// Major Lines (4m foundations)
+	vec2 grid = abs(fract(local_pos.xz / grid_size - 0.5) - 0.5) / (line_width / grid_size);
+	float line = min(grid.x, grid.y);
+	float major_mask = 1.0 - smoothstep(0.0, 1.0, line);
+	
+	// Minor Lines (2m small foundations)
+	vec2 minor_grid = abs(fract(local_pos.xz / minor_grid_size - 0.5) - 0.5) / ((line_width * 0.5) / minor_grid_size);
+	float minor_line = min(minor_grid.x, minor_grid.y);
+	float minor_mask = 1.0 - smoothstep(0.0, 1.0, minor_line);
+	
+	// Border
+	float half_size = territory_size / 2.0;
+	float border_dist = max(abs(local_pos.x), abs(local_pos.z));
+	float border_mask = smoothstep(half_size - 0.1, half_size, border_dist);
+	
+	float final_mask = max(major_mask, minor_mask * 0.4);
+	final_mask = max(final_mask, border_mask);
+	
+	ALBEDO = grid_color.rgb;
+	// Fade out near camera
+	float dist = length(world_pos - CAMERA_POSITION_WORLD);
+	float fade = clamp(1.0 - (dist / (territory_size * 1.5)), 0.0, 1.0);
+	
+	ALPHA = final_mask * grid_color.a * fade;
 }

@@ -1,15 +1,14 @@
-[gd_resource type="Resource" script_class="BuildBlueprint" load_steps=3 format=3 uid="uid://blueprint_roof_wood"]
-[ext_resource type="PackedScene" uid="uid://roof_wood" path="res://building/blueprints/roof_wood.tscn" id="1_scene"]
-[ext_resource type="Script" path="res://building/blueprint.gd" id="2_script"]
+[gd_resource type="Resource" script_class="BuildBlueprint" load_steps=3 format=3 uid="uid://bwpfxj5irgcjh"]
+
+[ext_resource type="PackedScene" uid="uid://cmno8i18dku6c" path="res://building/blueprints/roof_wood.tscn" id="1_scene"]
+[ext_resource type="Script" uid="uid://ddx0l85efqnqf" path="res://building/blueprint.gd" id="2_script"]
 
 [resource]
 script = ExtResource("2_script")
 name = "Wooden Roof"
-category = "Structures"
-sub_category = "Floor/Roof"
+sub_category = "Roof"
 scene = ExtResource("1_scene")
 cost = {
 "Wood": 8
 }
 description = "A flat wooden roof to complete your shelter."
-snap_size = 4.0
